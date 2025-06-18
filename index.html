@@ -1,554 +1,1077 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Banknote Bazaar - Lotti di Banconote Varie</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts - Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f0f2f5; /* Sfondo grigio chiaro */
-            padding-bottom: 80px; /* Spazio per la barra del carrello fissa */
-        }
-        /* Stili personalizzati per una migliore estetica */
-        .product-card {
-            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-        }
-        .product-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-        }
-        .btn-primary {
-            background-color: #3b82f6; /* Blu per i pulsanti */
-            color: white;
-            transition: background-color 0.2s ease-in-out;
-        }
-        .btn-primary:hover {
-            background-color: #2563eb; /* Blu più scuro al passaggio del mouse */
-        }
-        .message-box {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background-color: #4CAF50; /* Verde per successo */
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            z-index: 1000;
-            opacity: 0;
-            transform: translateY(-20px);
-            transition: opacity 0.3s ease-out, transform 0.3s ease-out;
-        }
-        .message-box.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
-        /* Stili per la barra del carrello fissa */
-        .fixed-cart-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background-color: #333;
-            color: white;
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 1500;
-            box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.1);
-            border-top-left-radius: 12px;
-            border-top-right-radius: 12px;
-        }
-        .fixed-cart-bar.hidden {
-            display: none;
-        }
-        .quantity-control-btn {
-            background-color: #e2e8f0; /* Light gray for quantity buttons */
-            color: #4a5568; /* Darker gray text */
-            padding: 0.5rem 0.75rem;
-            border-radius: 0.5rem;
-            font-weight: bold;
-            transition: background-color 0.2s ease-in-out;
-            cursor: pointer;
-        }
-        .quantity-control-btn:hover {
-            background-color: #cbd5e0; /* Slightly darker gray on hover */
-        }
-        /* Stili per il modale di acquisto */
-        .purchase-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 2000;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.3s ease-out, visibility 0.3s ease-out;
-        }
-        .purchase-modal.show {
-            opacity: 1;
-            visibility: visible;
-        }
-        .purchase-modal-content {
-            background-color: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
-            width: 90%;
-            max-width: 400px;
-            text-align: center;
-            transform: translateY(-20px);
-            transition: transform 0.3s ease-out;
-        }
-        .purchase-modal.show .purchase-modal-content {
-            transform: translateY(0);
-        }
-        .purchase-modal-close {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            font-size: 1.8rem;
-            cursor: pointer;
-            color: #666;
-        }
-        .purchase-modal-close:hover {
-            color: #333;
-        }
-    </style>
-</head>
-<body class="antialiased">
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, collection, getDoc, deleteDoc } from 'firebase/firestore';
 
-    <!-- Message Box per le notifiche -->
-    <div id="messageBox" class="message-box"></div>
+// Funzione per riprodurre un suono
+const playSound = (src, volume = 0.5) => {
+  const audio = new Audio(src);
+  audio.volume = volume;
+  audio.play().catch(e => console.error("Errore nella riproduzione audio:", e));
+};
 
-    <!-- Modale di Acquisto -->
-    <div id="purchaseModal" class="purchase-modal">
-        <div class="purchase-modal-content">
-            <span class="purchase-modal-close" onclick="hidePurchaseModal()">&times;</span>
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Conferma Acquisto</h2>
-            <p class="text-gray-600 mb-4">Inserisci il tuo numero di conferma (10 cifre) per procedere.</p>
-            <input type="text" id="confirmationNumber" maxlength="10" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline rounded-lg mb-4" placeholder="Numero di 10 cifre">
-            <button class="w-full py-3 px-6 rounded-lg font-semibold btn-primary" onclick="confirmFinalPurchase()">Conferma Acquisto</button>
-        </div>
+// Componente per le barre di stato
+const StatusBar = ({ label, value, colorClass }) => (
+  <div className="mb-2 w-full">
+    <div className="flex justify-between items-center mb-1">
+      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-sm font-medium text-gray-900">{Math.round(value)}%</span>
     </div>
-
-    <!-- Header Section -->
-    <header class="bg-white shadow-md py-4 px-6 md:px-10 sticky top-0 z-50 rounded-b-lg">
-        <div class="container mx-auto flex justify-between items-center">
-            <!-- Logo/Titolo del Sito -->
-            <a href="#" class="text-3xl font-bold text-gray-800" onclick="renderPage('home')">Banknote Bazaar</a>
-            <!-- Navigazione -->
-            <nav class="flex items-center space-x-6">
-                <ul class="flex space-x-6">
-                    <li><a href="#" class="text-gray-600 hover:text-gray-900 font-medium" onclick="renderPage('home')">Home</a></li>
-                    <li><a href="#" class="text-gray-600 hover:text-gray-900 font-medium" onclick="renderPage('lotti')">Lotti</a></li>
-                </ul>
-            </nav>
-        </div>
-    </header>
-
-    <!-- Main Content Section -->
-    <main id="mainContent" class="container mx-auto py-8 px-4 md:px-0">
-        <!-- Il contenuto verrà caricato qui dinamicamente -->
-    </main>
-
-    <!-- Fixed Cart Bar -->
-    <div id="fixedCartBar" class="fixed-cart-bar hidden">
-        <span class="text-xl font-bold">Totale Carrello: <span id="cartTotalFixed">€0.00</span></span>
-        <button class="py-2 px-5 rounded-lg font-semibold btn-primary" onclick="showPurchaseModal()">Acquista</button>
+    <div className="w-full bg-gray-200 rounded-full h-3">
+      <div
+        className={`h-3 rounded-full transition-all duration-300 ${colorClass}`}
+        style={{ width: `${value}%` }}
+      ></div>
     </div>
+  </div>
+);
 
-    <!-- Footer Section -->
-    <footer class="bg-gray-800 text-white py-8 mt-12 rounded-t-lg">
-        <div class="container mx-auto text-center">
-            <p>&copy; 2025 Banknote Bazaar. Tutti i diritti riservati.</p>
-            <div class="flex justify-center space-x-4 mt-4">
-                <a href="#" class="text-gray-400 hover:text-white">Privacy Policy</a>
-                <a href="#" class="text-gray-400 hover:text-white">Termini di Servizio</a>
+// Componente Modale generico
+const Modal = ({ show, onClose, title, children, showCloseButton = true }) => {
+  if (!show) return null;
+  return (
+    <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 relative">
+        <h2 className="text-2xl font-bold mb-4 text-gray-800">{title}</h2>
+        {children}
+        {showCloseButton && (
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-3xl font-bold"
+            aria-label="Chiudi"
+          >
+            &times;
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Componente Farmacia
+const PharmacyModal = ({ show, onClose, money, onBuy, onMessage }) => {
+  const products = [
+    { name: 'Cerotto', price: 1, heal: 5, description: 'Cura piccole ferite' },
+    { name: 'Antidolorifico', price: 5, heal: 20, description: 'Allevia il dolore' },
+    { name: 'Kit Primo Soccorso', price: 15, heal: 50, description: 'Per emergenze mediche' },
+    { name: 'Visita Medica', price: 50, heal: 100, description: 'Visita completa dal dottore' },
+  ];
+
+  return (
+    <Modal show={show} onClose={onClose} title="Farmacia">
+      <p className="mb-4 text-gray-700">Denaro disponibile: <span className="font-semibold text-green-600">€{money.toFixed(2)}</span></p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {products.map((product) => (
+          <div key={product.name} className="bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200">
+            <h3 className="font-semibold text-lg mb-1">{product.name}</h3>
+            <p className="text-sm text-gray-600 mb-2">{product.description}</p>
+            <p className="text-base text-gray-800">Costo: <span className="font-bold">€{product.price.toFixed(2)}</span> | Cura: <span className="font-bold">{product.heal}%</span></p>
+            <button
+              onClick={() => onBuy(product, 'pharmacy')}
+              disabled={money < product.price}
+              className="mt-3 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Acquista
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+};
+
+// Componente Supermercato
+const SupermarketModal = ({ show, onClose, money, onBuyFood, onMessage }) => {
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  const foodItems = [
+    // Category: Acqua & Bibite
+    { category: 'acqua_bibite', name: 'Acqua Naturale - EcoGoccia (1.5L)', price: 0.30, restore: 2, description: 'Acqua minerale economica.' },
+    { category: 'acqua_bibite', name: 'Acqua Frizzante - BolleVivo (1L)', price: 0.50, restore: 2, description: 'Acqua frizzante rinfrescante.' },
+    { category: 'acqua_bibite', name: 'Succo di Frutta Arancia - SolAgro (1L)', price: 1.80, restore: 8, description: 'Succo di frutta base.' },
+    { category: 'acqua_bibite', name: 'Bibita Gassata Cola - HappyFizz (0.5L)', price: 1.20, restore: 5, description: 'Bibita zuccherata.' },
+    { category: 'acqua_bibite', name: 'Bevanda Energetica - TurboCharge (0.33L)', price: 2.50, restore: 10, description: 'Per una carica extra.' },
+    { category: 'acqua_bibite', name: 'Acqua Essenziale - VitalityAqua (1L)', price: 1.20, restore: 3, description: 'Acqua premium con minerali.' },
+
+    // Category: Cibo Base
+    { category: 'cibo_base', name: 'Pane Casereccio - AnticoForno', price: 2.50, restore: 20, description: 'Pane artigianale.' },
+    { category: 'cibo_base', name: 'Pasta Lunga Integrale - BioGrano', price: 1.80, restore: 18, description: 'Pasta sana e nutriente.' },
+    { category: 'cibo_base', name: 'Riso Basmati - ParadisoOrientale', price: 2.20, restore: 15, description: 'Riso aromatico.' },
+    { category: 'cibo_base', name: 'Uova Fresche (12) - NaturaViva', price: 3.50, restore: 25, description: 'Uova fresche di fattoria.' },
+    { category: 'cibo_base', name: 'Latte Biologico - MuccaFelice (1L)', price: 1.80, restore: 12, description: 'Latte da agricoltura biologica.' },
+    { category: 'cibo_base', name: 'Pane a fette - Spuntino', price: 1.00, restore: 10, description: 'Per toast veloci.' },
+    { category: 'cibo_base', name: 'Pasta Secca - La Nonna', price: 1.00, restore: 12, description: 'Formato classico.' },
+
+    // Category: Carne & Pesce
+    { category: 'carne_pesce', name: 'Petto di Pollo - FattoriaSana (500g)', price: 7.00, restore: 40, description: 'Fonte proteica magra.' },
+    { category: 'carne_pesce', name: 'Carne Macinata - GustoGenuino (400g)', price: 5.50, restore: 30, description: 'Per ragù o polpette.' },
+    { category: 'carne_pesce', name: 'Merluzzo Fresco - BluProfondo (300g)', price: 9.00, restore: 35, description: 'Pesce bianco leggero.' },
+    { category: 'carne_pesce', name: 'Salmone Fresco - Acquamarina (200g)', price: 14.00, restore: 50, description: 'Ricco di Omega-3.' },
+
+    // Category: Latticini & Formaggi
+    { category: 'latticini_formaggi', name: 'Yogurt Greco - BiancoPerfetto (250g)', price: 1.50, restore: 10, description: 'Ricco di proteine.' },
+    { category: 'latticini_formaggi', name: 'Mozzarella di Bufala - OroBianco (250g)', price: 3.80, restore: 15, description: 'Fresca e saporita.' },
+    { category: 'latticini_formaggi', name: 'Grana Padano DOP - StagioneOro (200g)', price: 7.00, restore: 20, description: 'Formaggio stagionato.' },
+    { category: 'latticini_formaggi', name: 'Burro Fresco - PannaDelicata (125g)', price: 2.20, restore: 5, description: 'Per cucinare o spalmare.' },
+
+    // Category: Frutta & Verdura
+    { category: 'frutta_verdura', name: 'Mele (1kg) - RaccoltaFelicita', price: 2.00, restore: 10, description: 'Mele croccanti.' },
+    { category: 'frutta_verdura', name: 'Banane (1kg) - TropicoSapore', price: 1.50, restore: 8, description: 'Ricche di potassio.' },
+    { category: 'frutta_verdura', name: 'Insalata Mista - VerdeFreschezza', price: 1.20, restore: 5, description: 'Pronta da gustare.' },
+    { category: 'frutta_verdura', name: 'Pomodori (500g) - SoleRosso', price: 1.80, restore: 7, description: 'Essenziali per la cucina italiana.' },
+
+    // Category: Snack & Dolci
+    { category: 'snack_dolci', name: 'Patatine Fritte - CroccanteMania (150g)', price: 1.80, restore: 8, description: 'Snack salato.' },
+    { category: 'snack_dolci', name: 'Biscotti al Cioccolato - DeliziaNera (200g)', price: 3.00, restore: 12, description: 'Per i più golosi.' },
+    { category: 'snack_dolci', name: 'Gelato Artigianale - DolceMomento (500g)', price: 4.50, restore: 15, description: 'Un piacere rinfrescante.' },
+    { category: 'snack_dolci', name: 'Barretta Cereali - EnergiaFit', price: 1.00, restore: 5, description: 'Snack veloce e salutare.' },
+    { category: 'snack_dolci', name: 'Caramelle Miste - ZuccheroMagia', price: 1.50, restore: 3, description: 'Piccolo sfizio.' },
+  ];
+
+  const categories = [
+    { id: 'all', name: 'Tutti i prodotti' },
+    { id: 'acqua_bibite', name: 'Acqua & Bibite' },
+    { id: 'cibo_base', name: 'Cibo Base' },
+    { id: 'carne_pesce', name: 'Carne & Pesce' },
+    { id: 'latticini_formaggi', name: 'Latticini & Formaggi' },
+    { id: 'frutta_verdura', name: 'Frutta & Verdura' },
+    { id: 'snack_dolci', name: 'Snack & Dolci' },
+  ];
+
+  const filteredItems = selectedCategory === 'all'
+    ? foodItems
+    : foodItems.filter(item => item.category === selectedCategory);
+
+  return (
+    <Modal show={show} onClose={onClose} title="Supermercato">
+      <p className="mb-4 text-gray-700">Denaro disponibile: <span className="font-semibold text-green-600">€{money.toFixed(2)}</span></p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => setSelectedCategory(cat.id)}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              selectedCategory === cat.id
+                ? 'bg-green-600 text-white shadow-md'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            {cat.name}
+          </button>
+        ))}
+      </div>
+
+      <h3 className="text-xl font-bold mb-3 text-gray-800">Acquista Cibo ({categories.find(c => c.id === selectedCategory).name})</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 max-h-96 overflow-y-auto pr-2"> {/* Aggiunto max-h e overflow per lo scroll */}
+        {filteredItems.length === 0 ? (
+          <p className="col-span-full text-gray-600">Nessun prodotto in questa categoria.</p>
+        ) : (
+          filteredItems.map((item) => (
+            <div key={item.name} className="bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200">
+              <h4 className="font-semibold text-lg mb-1">{item.name}</h4>
+              <p className="text-sm text-gray-600 mb-2">{item.description}</p>
+              <p className="text-base text-gray-800">Costo: <span className="font-bold">€{item.price.toFixed(2)}</span> | Ripristina: <span className="font-bold">{item.restore}%</span></p>
+              <button
+                onClick={() => onBuyFood(item, 'supermarket')}
+                disabled={money < item.price}
+                className="mt-3 w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Acquista
+              </button>
             </div>
+          ))
+        )}
+      </div>
+    </Modal>
+  );
+};
+
+// Componente Frigorifero
+const FridgeModal = ({ show, onClose, fridge, onEatFood, onMessage }) => {
+  return (
+    <Modal show={show} onClose={onClose} title="Il Tuo Frigorifero">
+      {fridge.length === 0 ? (
+        <p className="text-gray-600">Il frigorifero è vuoto. Compra qualcosa al supermercato!</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto pr-2">
+          {fridge.map((item, index) => (
+            <div key={index} className="bg-blue-50 p-4 rounded-md shadow-sm border border-blue-200">
+              <h4 className="font-semibold text-lg mb-1">{item.name}</h4>
+              <p className="text-sm text-gray-600 mb-2">Ripristina: <span className="font-bold">{item.restore}%</span></p>
+              <button
+                onClick={() => onEatFood(index)}
+                className="mt-3 w-full bg-yellow-500 text-white py-2 px-4 rounded-md hover:bg-yellow-600 transition-colors"
+              >
+                Mangia
+              </button>
+            </div>
+          ))}
         </div>
-    </footer>
+      )}
+    </Modal>
+  );
+};
 
-    <script>
-        let cart = []; // Array per memorizzare gli articoli nel carrello
-        let exchangeRates = {}; // Oggetto per memorizzare i tassi di cambio
-        let productQuantities = {}; // Stores the selected quantity for each product on the page
 
-        // Funzione per mostrare un messaggio temporaneo
-        function showMessage(message, type = 'success') {
-            const messageBox = document.getElementById('messageBox');
-            messageBox.textContent = message;
-            messageBox.className = 'message-box show'; // Resetta le classi e aggiungi 'show'
-            if (type === 'success') {
-                messageBox.style.backgroundColor = '#4CAF50'; // Verde
-            } else if (type === 'error') {
-                messageBox.style.backgroundColor = '#f44336'; // Rosso
-            } else {
-                messageBox.style.backgroundColor = '#2196F3'; // Blu per info
-            }
+// Componente Computer
+const ComputerModal = ({ show, onClose, money, onPlayGame, internetUsage, onMessage }) => {
+  const games = [
+    { name: 'Scacchi', mb: 5, description: 'Un gioco di strategia, basso consumo.' },
+    { name: 'Navigazione Web', mb: 20, description: 'Naviga su internet, consumo medio.' },
+    { name: 'Videogame Online', mb: 50, description: 'Gioca online con amici, consumo elevato.' },
+    { name: 'Streaming Video', mb: 100, description: 'Guarda film e serie, consumo molto elevato.' },
+  ];
+  const costPerMB = 0.01; // €0.01 per MB
 
-            // Nascondi il messaggio dopo 3 secondi
-            setTimeout(() => {
-                messageBox.classList.remove('show');
-            }, 3000);
+  return (
+    <Modal show={show} onClose={onClose} title="Computer e Internet">
+      <p className="mb-4 text-gray-700">Denaro disponibile: <span className="font-semibold text-green-600">€{money.toFixed(2)}</span></p>
+      <p className="mb-4 text-gray-700">Consumo internet attuale: <span className="font-semibold text-red-600">{internetUsage.toFixed(2)} MB</span></p>
+      <p className="mb-6 text-gray-700">Costo stimato bolletta: <span className="font-semibold text-red-600">€{(internetUsage * costPerMB).toFixed(2)}</span></p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {games.map((game) => (
+          <div key={game.name} className="bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200">
+            <h3 className="font-semibold text-lg mb-1">{game.name}</h3>
+            <p className="text-sm text-gray-600 mb-2">{game.description}</p>
+            <p className="text-base text-gray-800">Consumo: <span className="font-bold">{game.mb} MB/ora</span></p>
+            <button
+              onClick={() => onPlayGame(game)}
+              className="mt-3 w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 transition-colors"
+            >
+              Gioca per 1 ora
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+};
+
+// Componente Tempo Libero
+const LeisureModal = ({ show, onClose, money, onDoLeisure, onMessage }) => {
+  const activities = [
+    { name: 'Passeggiata al parco', price: 0, restoreEnergy: 5, description: 'Una boccata d\'aria fresca.' },
+    { name: 'Leggere un libro', price: 0, restoreEnergy: 10, description: 'Relax per la mente.' },
+    { name: 'Guardare un film', price: 8, restoreEnergy: 20, description: 'Una serata al cinema.' },
+    { name: 'Cena al ristorante', price: 30, restoreEnergy: 30, restoreFood: 20, description: 'Un pasto fuori casa.' },
+    { name: 'Concerto', price: 50, restoreEnergy: 40, description: 'Musica dal vivo.' },
+  ];
+
+  return (
+    <Modal show={show} onClose={onClose} title="Tempo Libero">
+      <p className="mb-4 text-gray-700">Denaro disponibile: <span className="font-semibold text-green-600">€{money.toFixed(2)}</span></p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {activities.map((activity) => (
+          <div key={activity.name} className="bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200">
+            <h3 className="font-semibold text-lg mb-1">{activity.name}</h3>
+            <p className="text-sm text-gray-600 mb-2">{activity.description}</p>
+            <p className="text-base text-gray-800">Costo: <span className="font-bold">€{activity.price.toFixed(2)}</span></p>
+            <p className="text-base text-gray-800">Energia: <span className="font-bold">+{activity.restoreEnergy}%</span> {activity.restoreFood ? ` | Cibo: +${activity.restoreFood}%` : ''}</p>
+            <button
+              onClick={() => onDoLeisure(activity)}
+              disabled={money < activity.price}
+              className="mt-3 w-full bg-orange-600 text-white py-2 px-4 rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Fai questa attività
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+};
+
+// Componente Modale per l'input del nome del personaggio
+const NameInputModal = ({ show, onNameSubmit, message, isCheckingName }) => {
+  const [name, setName] = useState('');
+
+  const handleSubmit = () => {
+    if (name.trim()) {
+      onNameSubmit(name.trim());
+    }
+  };
+
+  return (
+    <Modal show={show} onClose={() => {}} title="Dai un nome al tuo personaggio" showCloseButton={false}>
+      <p className="mb-4 text-gray-700">Scegli un nome per il tuo personaggio. Sarà memorizzato per le tue partite future.</p>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Nome del personaggio"
+        className="w-full p-3 border border-gray-300 rounded-md mb-4 focus:ring-blue-500 focus:border-blue-500"
+        disabled={isCheckingName}
+      />
+      {message && (
+        <p className={`text-sm mb-4 ${message.includes('Errore') || message.includes('già registrato') ? 'text-red-600' : 'text-green-600'}`}>{message}</p>
+      )}
+      <button
+        onClick={handleSubmit}
+        disabled={!name.trim() || isCheckingName}
+        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isCheckingName ? 'Verifica nome...' : 'Conferma Nome'}
+      </button>
+    </Modal>
+  );
+};
+
+// Componente per la Cronologia Acquisti / Scontrini
+const ReceiptHistoryModal = ({ show, onClose, purchaseHistory }) => {
+  // Raggruppa gli acquisti per data per simulare scontrini giornalieri
+  const groupedPurchases = purchaseHistory.reduce((acc, purchase) => {
+    const date = new Date(purchase.timestamp).toLocaleDateString('it-IT');
+    if (!acc[date]) {
+      acc[date] = [];
+    }
+    acc[date].push(purchase);
+    return acc;
+  }, {});
+
+  return (
+    <Modal show={show} onClose={onClose} title="Cronologia Acquisti / Scontrini">
+      {Object.keys(groupedPurchases).length === 0 ? (
+        <p className="text-gray-600">Nessun acquisto registrato.</p>
+      ) : (
+        <div className="max-h-96 overflow-y-auto pr-2">
+          {Object.keys(groupedPurchases).sort((a, b) => new Date(b) - new Date(a)).map(date => (
+            <div key={date} className="mb-6 p-4 border border-gray-200 rounded-lg shadow-sm bg-white">
+              <h3 className="text-xl font-bold mb-3 text-gray-800 border-b pb-2">Scontrino del {date}</h3>
+              <ul className="list-disc pl-5">
+                {groupedPurchases[date].map((purchase, index) => (
+                  <li key={index} className="text-gray-700 text-sm mb-1">
+                    <span className="font-semibold">{purchase.item.name}</span> - €{purchase.item.price.toFixed(2)} ({purchase.type === 'pharmacy' ? 'Farmacia' : 'Supermercato'})
+                  </li>
+                ))}
+              </ul>
+              <p className="text-right font-bold text-gray-900 mt-2">
+                Totale: €{groupedPurchases[date].reduce((sum, p) => sum + p.item.price, 0).toFixed(2)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+};
+
+
+const App = () => {
+  const [app, setApp] = useState(null);
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false); // Stato per indicare che l'autenticazione è pronta
+
+  // Stato del gioco
+  const [characterName, setCharacterName] = useState(null);
+  const [money, setMoney] = useState(5.00);
+  const [health, setHealth] = useState(100);
+  const [food, setFood] = useState(100);
+  const [energy, setEnergy] = useState(100);
+  const [fridge, setFridge] = useState([]);
+  const [internetUsage, setInternetUsage] = useState(0);
+  const [gameDay, setGameDay] = useState(1); // Giorno di gioco
+  const [lastSalaryDay, setLastSalaryDay] = useState(0); // Ultimo giorno di gioco in cui è stato ricevuto lo stipendio
+  const [lastSavedRealTime, setLastSavedRealTime] = useState(Date.now()); // Timestamp dell'ultimo salvataggio (tempo reale)
+  const [purchaseHistory, setPurchaseHistory] = useState([]); // Cronologia acquisti per scontrini
+
+  const [message, setMessage] = useState('');
+  const messageTimeoutRef = useRef(null); // Riferimento per il timeout del messaggio
+
+  // Stato modali
+  const [showPharmacy, setShowPharmacy] = useState(false);
+  const [showSupermarket, setShowSupermarket] = useState(false);
+  const [showFridge, setShowFridge] = useState(false); // Nuova modale per il frigorifero
+  const [showComputer, setShowComputer] = useState(false);
+  const [showLeisure, setShowLeisure] = useState(false); // Modale per Tempo Libero
+  const [showFinancialAdvice, setShowFinancialAdvice] = useState(false); // Modale per consigli finanziari
+  const [financialAdvice, setFinancialAdvice] = useState('Clicca per ricevere un consiglio...');
+  const [isGeneratingAdvice, setIsGeneratingAdvice] = useState(false);
+  const [showGameOver, setShowGameOver] = useState(false);
+  const [showNameInputModal, setShowNameInputModal] = useState(true); // Mostra all'inizio
+  const [nameInputMessage, setNameInputMessage] = useState('');
+  const [isCheckingName, setIsCheckingName] = useState(false);
+  const [showReceiptHistory, setShowReceiptHistory] = useState(false); // Nuova modale per la cronologia scontrini
+
+
+  // Constants
+  const GAME_TICK_INTERVAL_MS = 1000; // Ogni 1 secondo reale
+  const GAME_MINUTES_PER_REAL_SECOND = 12; // 1 secondo reale = 12 minuti di gioco
+  const DAILY_SALARY_AMOUNT = 50; // Euro
+  const MINUTES_IN_A_GAME_DAY = 24 * 60; // Minuti in un giorno di gioco
+
+  const HEALTH_DECREASE_PER_HOUR = 1; // 1% ogni ora di gioco
+  const FOOD_DECREASE_PER_5_MINUTES = 1; // 1% ogni 5 minuti di gioco
+  const ENERGY_DECREASE_PER_20_MINUTES = 1; // 1% ogni 20 minuti di gioco
+
+  const MONTHLY_TAX = 200; // Euro (semplificato) - Verrà applicato ogni X giorni di gioco
+  const DAYS_PER_MONTH_FOR_TAX = 30; // Ogni 30 giorni di gioco si pagano le tasse
+
+  const GAME_OVER_DEBT_LIMIT = -2000;
+
+  // Riferimento per il debouncing del salvataggio su Firestore
+  const saveTimeoutRef = useRef(null);
+
+  // Sound URLs
+  const SCAN_SOUND = 'https://actions.google.com/sounds/v1/ui/beep_short.ogg';
+  const RECEIPT_PRINT_SOUND = 'https://actions.google.com/sounds/v1/commercial/cash_register_printer.ogg';
+
+  // Funzione per mostrare messaggi
+  const displayMessage = useCallback((msg, duration = 3000) => {
+    setMessage(msg);
+    if (messageTimeoutRef.current) {
+      clearTimeout(messageTimeoutRef.current);
+    }
+    messageTimeoutRef.current = setTimeout(() => {
+      setMessage('');
+    }, duration);
+  }, []);
+
+
+  // --- Firebase Initialization and Auth ---
+  useEffect(() => {
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+    try {
+      const firebaseApp = initializeApp(firebaseConfig);
+      const firestoreDb = getFirestore(firebaseApp);
+      const firebaseAuth = getAuth(firebaseApp);
+
+      setApp(firebaseApp);
+      setDb(firestoreDb);
+      setAuth(firebaseAuth);
+
+      const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+      const authenticate = (token) => {
+        if (token) {
+          return signInWithCustomToken(firebaseAuth, token);
+        } else {
+          return signInAnonymously(firebaseAuth);
         }
+      };
 
-        // Funzione per aggiungere un articolo al carrello
-        function addToCart(product) {
-            const existingItem = cart.find(item => item.id === product.id);
-            if (existingItem) {
-                existingItem.quantity += product.quantity; // Aggiungi la nuova quantità
-            } else {
-                cart.push({ ...product }); // Il prodotto ha già la proprietà quantity
-            }
-            showMessage(`"${product.name}" aggiunto al carrello!`, 'success');
-            renderCart();
-        }
-
-        // Funzione per rimuovere un articolo dal carrello (non più usata direttamente nell'UI attuale)
-        function removeFromCart(productId) {
-            cart = cart.filter(item => item.id !== productId);
-            renderCart();
-            showMessage('Articolo rimosso dal carrello.', 'info');
-        }
-
-        // Funzione per aggiornare la quantità di un articolo nel carrello (non più usata direttamente nell'UI attuale)
-        function updateQuantity(productId, change) {
-            const item = cart.find(item => item.id === productId);
-            if (item) {
-                item.quantity += change;
-                if (item.quantity <= 0) {
-                    removeFromCart(productId);
-                } else {
-                    renderCart();
-                }
-            }
-        }
-
-        // Funzione per renderizzare il contenuto del carrello e la barra fissa
-        function renderCart() {
-            const cartTotalFixedElement = document.getElementById('cartTotalFixed');
-            const fixedCartBar = document.getElementById('fixedCartBar');
-
-            let total = 0;
-            cart.forEach(item => {
-                total += item.price * item.quantity;
+      authenticate(initialAuthToken)
+        .then((userCredential) => {
+          setUserId(userCredential.user.uid);
+          setIsAuthReady(true);
+          console.log("Autenticato:", userCredential.user.uid);
+        })
+        .catch((error) => {
+          console.error("Errore autenticazione iniziale:", error);
+          // Tentativo di autenticazione anonima come fallback in caso di errore token custom
+          signInAnonymously(firebaseAuth)
+            .then((userCredential) => {
+              setUserId(userCredential.user.uid);
+              setIsAuthReady(true);
+              console.log("Autenticato anonimamente (fallback):", userCredential.user.uid);
+            })
+            .catch((anonError) => {
+              console.error("Errore autenticazione anonima:", anonError);
+              setIsAuthReady(true); // Continua anche senza autenticazione
             });
-
-            cartTotalFixedElement.textContent = `€${total.toFixed(2)}`;
-
-            if (total > 0) {
-                fixedCartBar.classList.remove('hidden');
-            } else {
-                fixedCartBar.classList.add('hidden');
-            }
-        }
-
-        // Funzione per mostrare il modale di acquisto
-        function showPurchaseModal() {
-            if (cart.length === 0) {
-                showMessage('Il carrello è vuoto. Aggiungi prima dei prodotti!', 'error');
-                return;
-            }
-            document.getElementById('purchaseModal').classList.add('show');
-        }
-
-        // Funzione per nascondere il modale di acquisto
-        function hidePurchaseModal() {
-            document.getElementById('purchaseModal').classList.remove('show');
-            document.getElementById('confirmationNumber').value = ''; // Clear the input
-        }
-
-        // Funzione per confermare l'acquisto finale
-        function confirmFinalPurchase() {
-            const confirmationNumber = document.getElementById('confirmationNumber').value;
-            // Simple validation: 10 digits
-            if (!/^\d{10}$/.test(confirmationNumber)) {
-                showMessage('Per favore, inserisci un numero di 10 cifre valido.', 'error');
-                return;
-            }
-
-            const totalSpent = document.getElementById('cartTotalFixed').textContent;
-            showMessage(`Hai appena acquistato ${totalSpent}! Grazie! Il tuo numero di conferma è: ${confirmationNumber}`, 'success');
-            cart = []; // Svuota il carrello
-            renderCart(); // Aggiorna la visualizzazione del carrello
-            hidePurchaseModal(); // Nascondi il modale
-        }
-
-        // Funzione per caricare i tassi di cambio (ora con dati statici)
-        async function fetchExchangeRates() {
-            // Dati statici per i tassi di cambio per evitare errori di rete
-            exchangeRates = {
-                "USD": 1.0, "EUR": 0.92, "GBP": 0.79, "JPY": 156.0, "CAD": 1.37, "AUD": 1.50, "CHF": 0.90, "CNY": 7.25, "INR": 83.4, "BRL": 5.25, "RUB": 89.0, "ZAR": 18.7, "NZD": 1.63, "MXN": 16.9, "SGD": 1.35, "HKD": 7.82, "SEK": 10.5, "NOK": 10.6, "DKK": 6.8, "PLN": 3.9, "HUF": 360.0, "CZK": 23.0, "ILS": 3.7, "PHP": 58.0, "THB": 36.5, "MYR": 4.7, "IDR": 16200.0, "KRW": 1370.0, "TRY": 32.2, "AED": 3.67, "SAR": 3.75, "QAR": 3.64, "KWD": 0.30, "BHD": 0.37, "OMR": 0.38, "EGP": 47.5, "CLP": 930.0, "COP": 3900.0, "ARS": 900.0, "PEN": 3.7, "UYU": 39.0, "PYG": 7500.0, "DOP": 58.0, "CUP": 24.0, "XCD": 2.7, "JMD": 155.0, "TTD": 6.7, "BBD": 2.0, "BSD": 1.0, "BZD": 2.0, "FJD": 2.2, "LKR": 300.0, "PKR": 278.0, "BDT": 110.0, "NPR": 133.0, "MVR": 15.4, "SCR": 13.5, "LBP": 1500.0, "SYP": 13000.0, "IQD": 1310.0, "IRR": 42000.0, "AFN": 70.0, "MMK": 2100.0, "LAK": 21000.0, "KHR": 4100.0, "VND": 25400.0, "MNT": 3400.0, "KZT": 445.0, "UZS": 12600.0, "KGS": 87.0, "TJS": 10.9, "AZN": 1.7, "GEL": 2.7, "AMD": 385.0, "BYN": 3.2, "UAH": 40.0, "MDL": 17.8, "ALL": 95.0, "RSD": 108.0, "MKD": 57.0, "BGN": 1.8, "RON": 4.9, "HRK": 7.5, "BAM": 1.8, "ISK": 138.0, "GHS": 13.5, "NGN": 1400.0, "XOF": 615.0, "XAF": 615.0, "CDF": 2700.0, "ZMW": 26.0, "KES": 130.0, "TZS": 2500.0, "UGX": 3800.0, "RWF": 1300.0, "BIF": 2800.0, "DJF": 178.0, "ETB": 57.0, "SOS": 570.0, "ERN": 15.0, "SDG": 600.0, "LYD": 4.8, "DZD": 135.0, "MAD": 10.0, "TND": 3.1, "MRO": 357.0, "SLL": 22000.0, "LRD": 190.0, "GMD": 68.0, "CVE": 100.0, "GNF": 8500.0, "MLF": 615.0, "SNF": 615.0, "KMF": 460.0, "MGA": 4500.0, "MWK": 1700.0, "MZN": 64.0, "NAD": 18.7, "SSP": 1000.0, "SZL": 18.7, "ZWL": 36000.0, "PGK": 3.9, "SBD": 8.5, "VUV": 120.0, "WST": 2.7, "TOP": 2.3, "KID": 1.50, "TVD": 1.50, "XPF": 119.0, "GIP": 0.79, "JEP": 0.79, "IMP": 0.79, "GGP": 0.79, "FKP": 0.79, "SHP": 0.79, "CUC": 1.0, "XBT": 0.000015, "ETH": 0.0003, "XAU": 0.00045, "XAG": 0.015, "XPT": 0.00001, "XDR": 0.75,
-            };
-            populateCurrencySelectors();
-        }
-
-        // Funzione per popolare i selettori di valuta
-        function populateCurrencySelectors() {
-            const fromCurrencySelect = document.getElementById('fromCurrency');
-            const toCurrencySelect = document.getElementById('toCurrency');
-
-            if (!fromCurrencySelect || !toCurrencySelect) return;
-
-            // Clear existing options
-            fromCurrencySelect.innerHTML = '';
-            toCurrencySelect.innerHTML = '';
-
-            const currencies = Object.keys(exchangeRates).sort();
-            currencies.forEach(currency => {
-                const option1 = document.createElement('option');
-                option1.value = currency;
-                option1.textContent = currency;
-                fromCurrencySelect.appendChild(option1);
-
-                const option2 = document.createElement('option');
-                option2.value = currency;
-                option2.textContent = currency;
-                toCurrencySelect.appendChild(option2);
-            });
-
-            // Set default values
-            fromCurrencySelect.value = 'USD';
-            toCurrencySelect.value = 'EUR';
-        }
-
-        // Funzione per convertire la valuta
-        function convertCurrency() {
-            const amount = parseFloat(document.getElementById('amount').value);
-            const fromCurrency = document.getElementById('fromCurrency').value;
-            const toCurrency = document.getElementById('toCurrency').value;
-            const resultElement = document.getElementById('conversionResult');
-
-            if (isNaN(amount) || amount <= 0) {
-                resultElement.textContent = 'Inserisci un importo valido.';
-                return;
-            }
-            if (!exchangeRates[fromCurrency] || !exchangeRates[toCurrency]) {
-                resultElement.textContent = 'Valute non disponibili per la conversione.';
-                return;
-            }
-
-            const rateFromBase = exchangeRates[fromCurrency]; // Tasso della valuta di partenza rispetto alla base (USD)
-            const rateToBase = exchangeRates[toCurrency];     // Tasso della valuta di destinazione rispetto alla base (USD)
-
-            // Converti l'importo nella valuta base (USD) e poi nella valuta di destinazione
-            // Esempio: 10 EUR -> USD (10 / EUR_rate) -> JPY (USD_amount * JPY_rate)
-            const amountInBase = amount / rateFromBase;
-            const convertedAmount = amountInBase * rateToBase;
-
-            resultElement.textContent = `${amount.toFixed(2)} ${fromCurrency} = ${convertedAmount.toFixed(2)} ${toCurrency}`;
-        }
-
-        // Funzione per renderizzare la pagina Home
-        function renderHomePage() {
-            const mainContent = document.getElementById('mainContent');
-            mainContent.innerHTML = `
-                <h1 class="text-4xl font-extrabold text-gray-900 mb-8 text-center">Benvenuto in Banknote Bazaar!</h1>
-                <div class="bg-white rounded-xl shadow-lg p-8 mb-8">
-                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Convertitore di Valuta</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                        <div>
-                            <label for="amount" class="block text-gray-700 text-sm font-bold mb-2">Importo:</label>
-                            <input type="number" id="amount" value="1" min="0.01" step="0.01" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline rounded-lg">
-                        </div>
-                        <div>
-                            <label for="fromCurrency" class="block text-gray-700 text-sm font-bold mb-2">Da Valuta:</label>
-                            <select id="fromCurrency" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline rounded-lg"></select>
-                        </div>
-                        <div>
-                            <label for="toCurrency" class="block text-gray-700 text-sm font-bold mb-2">A Valuta:</label>
-                            <select id="toCurrency" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline rounded-lg"></select>
-                        </div>
-                    </div>
-                    <button class="mt-6 py-3 px-6 rounded-lg font-semibold btn-primary w-full" onclick="convertCurrency()">Converti</button>
-                    <p id="conversionResult" class="text-xl font-bold text-gray-900 mt-6 text-center"></p>
-                </div>
-
-                <div class="text-center mt-12">
-                    <h2 class="text-3xl font-bold text-gray-900 mb-4">Scopri le Nostre Banconote!</h2>
-                    <p class="text-gray-700 text-lg">Esplora la nostra vasta collezione di banconote singole, perfette per collezionisti e appassionati.</p>
-                    <button class="mt-6 py-4 px-8 rounded-lg font-semibold btn-primary text-xl" onclick="renderPage('lotti')">Vedi tutte le Banconote</button>
-                </div>
-            `;
-            fetchExchangeRates(); // Carica i tassi di cambio (ora statici) quando la home page è renderizzata
-        }
-
-        // Funzione per renderizzare la pagina Lotti
-        function renderLottiPage() {
-            const mainContent = document.getElementById('mainContent');
-            let productsHtml = '';
-
-            // Definizione delle valute e dei tagli disponibili raggruppati per "forza"
-            const categorizedCurrencies = {
-                "Valute Forti": {
-                    "USD": [1, 2, 5, 10, 20, 50, 100],
-                    "EUR": [5, 10, 20, 50, 100, 200, 500],
-                    "GBP": [5, 10, 20, 50],
-                    "CHF": [10, 20, 50, 100, 200, 1000],
-                    "CAD": [5, 10, 20, 50, 100],
-                    "AUD": [5, 10, 20, 50, 100],
-                    "JPY": [1000, 2000, 5000, 10000] // JPY è inclusa qui per la sua importanza globale
-                },
-                "Valute Medie": {
-                    "CNY": [1, 5, 10, 20, 50, 100],
-                    "INR": [10, 20, 50, 100, 200, 500, 2000],
-                    "BRL": [2, 5, 10, 20, 50, 100, 200],
-                    "RUB": [50, 100, 200, 500, 1000, 2000, 5000],
-                    "ZAR": [10, 20, 50, 100, 200],
-                    "MXN": [20, 50, 100, 200, 500, 1000],
-                    "TRY": [5, 10, 20, 50, 100, 200]
-                },
-                "Valute Esotiche/Deboli": {
-                    "IDR": [1000, 2000, 5000, 10000, 20000, 50000, 100000],
-                    "VND": [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000],
-                    "PYG": [2000, 5000, 10000, 20000, 50000, 100000],
-                    "LBP": [1000, 5000, 10000, 20000, 50000, 100000],
-                    "SOS": [500, 1000, 2000, 5000, 10000]
-                }
-            };
-
-            // Reset productQuantities for the new page render
-            productQuantities = {};
-
-            for (const category in categorizedCurrencies) {
-                productsHtml += `<h2 class="text-3xl font-bold text-gray-900 mt-10 mb-6 text-center">${category}</h2>`;
-                productsHtml += `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 mb-10">`;
-
-                const currenciesInThisCategory = categorizedCurrencies[category];
-                for (const currencyCode in currenciesInThisCategory) {
-                    const denominations = currenciesInThisCategory[currencyCode];
-                    const baseRate = exchangeRates[currencyCode]; // Tasso della valuta rispetto alla base (USD)
-                    const eurRate = exchangeRates['EUR']; // Tasso dell'Euro rispetto alla base (USD)
-
-                    if (!baseRate || !eurRate) {
-                        console.warn(`Tassi di cambio non disponibili per ${currencyCode}. Saltando.`);
-                        continue;
-                    }
-
-                    denominations.forEach(denomination => {
-                        const priceInEUR = (denomination / baseRate) * eurRate;
-                        const productName = `Banconota da ${denomination} ${currencyCode}`;
-                        const productId = `${currencyCode.toLowerCase()}-${denomination}`;
-                        const imageUrl = `https://placehold.co/600x400/${Math.floor(Math.random()*16777215).toString(16)}/FFFFFF?text=${currencyCode}${denomination}`; // Colore casuale per l'immagine
-
-                        // Initialize quantity for this product
-                        productQuantities[productId] = 1;
-
-                        productsHtml += `
-                            <div class="bg-white rounded-xl shadow-lg overflow-hidden product-card">
-                                <img src="${imageUrl}" alt="${productName}" class="w-full h-48 object-cover">
-                                <div class="p-6">
-                                    <h2 class="text-xl font-semibold text-gray-800 mb-2">${productName}</h2>
-                                    <p class="text-gray-600 text-sm mb-4">Singola banconota da ${denomination} ${currencyCode}.</p>
-                                    <div class="flex justify-between items-center mb-4">
-                                        <span class="text-3xl font-bold text-gray-900">€${priceInEUR.toFixed(2)}</span>
-                                    </div>
-                                    <div class="flex items-center justify-center mb-4 space-x-2">
-                                        <button class="quantity-control-btn" data-action="decrease" data-product-id="${productId}">-</button>
-                                        <span id="quantity-display-${productId}" class="text-xl font-semibold">1</span>
-                                        <button class="quantity-control-btn" data-action="increase" data-product-id="${productId}">+</button>
-                                    </div>
-                                    <button class="w-full py-3 px-6 rounded-lg font-semibold btn-primary add-to-cart-btn" data-product='{"id": "${productId}", "name": "${productName}", "price": ${priceInEUR.toFixed(2)}}'>Aggiungi al Carrello</button>
-                                </div>
-                            </div>
-                        `;
-                    });
-                }
-                productsHtml += `</div>`; // Close grid for the category
-            }
-
-
-            mainContent.innerHTML = `
-                <h1 class="text-4xl font-extrabold text-gray-900 mb-8 text-center">Banconote Singole Disponibili</h1>
-                ${productsHtml}
-            `;
-            // Aggiungi i listener di eventi ai nuovi pulsanti "Aggiungi al Carrello" dopo il rendering
-            attachAddToCartListeners();
-            attachQuantityControlListeners(); // Attach listeners for +/- buttons
-        }
-
-        // Funzione per allegare i listener di eventi ai pulsanti "Aggiungi al Carrello"
-        function attachAddToCartListeners() {
-            const addToCartButtons = document.querySelectorAll('.add-to-cart-btn');
-            addToCartButtons.forEach(button => {
-                button.removeEventListener('click', handleAddToCartClick); // Rimuovi i listener precedenti per evitare duplicati
-                button.addEventListener('click', handleAddToCartClick);
-            });
-        }
-
-        // Funzione per allegare i listener di eventi ai pulsanti +/- della quantità
-        function attachQuantityControlListeners() {
-            const quantityControlButtons = document.querySelectorAll('.quantity-control-btn');
-            quantityControlButtons.forEach(button => {
-                button.removeEventListener('click', handleQuantityControlClick); // Rimuovi i listener precedenti
-                button.addEventListener('click', handleQuantityControlClick);
-            });
-        }
-
-        // Handler per il click sui pulsanti +/- della quantità
-        function handleQuantityControlClick(event) {
-            const productId = event.target.dataset.productId;
-            const action = event.target.dataset.action;
-            const quantityDisplay = document.getElementById(`quantity-display-${productId}`);
-
-            let currentQuantity = productQuantities[productId];
-
-            if (action === 'increase') {
-                currentQuantity++;
-            } else if (action === 'decrease') {
-                currentQuantity--;
-            }
-
-            if (currentQuantity < 1) {
-                currentQuantity = 1; // Impedisci che la quantità scenda sotto 1
-            }
-
-            productQuantities[productId] = currentQuantity;
-            quantityDisplay.textContent = currentQuantity;
-        }
-
-        // Handler per il click sul pulsante "Aggiungi al Carrello"
-        function handleAddToCartClick(event) {
-            const productData = JSON.parse(event.currentTarget.dataset.product);
-            const productId = productData.id;
-            const quantity = productQuantities[productId] || 1; // Ottieni la quantità selezionata
-
-            // Passa la quantità ad addToCart
-            addToCart({ ...productData, quantity: quantity });
-
-            // Resetta la quantità visualizzata sulla scheda a 1 dopo l'aggiunta al carrello
-            if (document.getElementById(`quantity-display-${productId}`)) {
-                document.getElementById(`quantity-display-${productId}`).textContent = 1;
-                productQuantities[productId] = 1;
-            }
-        }
-
-        // Funzione per renderizzare la pagina corrente
-        function renderPage(page) {
-            if (page === 'home') {
-                renderHomePage();
-            } else if (page === 'lotti') {
-                renderLottiPage();
-            }
-        }
-
-        // Carica la pagina Home all'avvio
-        document.addEventListener('DOMContentLoaded', () => {
-            renderPage('home');
-            renderCart(); // Assicurati che la barra del carrello sia renderizzata correttamente all'avvio
         });
-    </script>
-</body>
-</html>
+
+      onAuthStateChanged(firebaseAuth, (user) => {
+        if (user) {
+          setUserId(user.uid);
+        } else {
+          // If user logs out or session expires, clear userId
+          setUserId(null);
+          setCharacterName(null); // Clear character name
+          setShowNameInputModal(true); // Re-show name input for new session
+        }
+        setIsAuthReady(true);
+      });
+
+    } catch (error) {
+      console.error("Errore nell'inizializzazione di Firebase:", error);
+      setIsAuthReady(true); // Permetti all'app di avviarsi anche se Firebase fallisce
+    }
+  }, []);
+
+  // Funzione per salvare lo stato del gioco
+  const saveGameState = useCallback(async () => {
+    if (!db || !userId || !characterName) {
+      // Non salvare se Firebase non è pronto, userId non c'è o il nome del personaggio non è impostato
+      return;
+    }
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      const gameStateRef = doc(db, `artifacts/${__app_id}/users/${userId}/game_state`, 'current_game');
+      try {
+        await setDoc(gameStateRef, {
+          characterName,
+          money,
+          health,
+          food,
+          energy,
+          fridge: JSON.stringify(fridge), // Serializza array di oggetti
+          internetUsage,
+          gameDay,
+          lastSalaryDay,
+          lastSavedRealTime: Date.now(), // Aggiorna il timestamp reale dell'ultimo salvataggio
+          purchaseHistory: JSON.stringify(purchaseHistory), // Salva la cronologia acquisti
+        });
+        // console.log("Stato del gioco salvato con successo.");
+      } catch (e) {
+        console.error("Errore nel salvataggio dello stato del gioco:", e);
+      }
+    }, 500); // Salva dopo 500ms di inattività
+  }, [db, userId, characterName, money, health, food, energy, fridge, internetUsage, gameDay, lastSalaryDay, purchaseHistory]);
+
+  // Listener per caricare lo stato del gioco all'avvio o al cambio utente
+  useEffect(() => {
+    if (db && userId && isAuthReady) {
+      const gameStateRef = doc(db, `artifacts/${__app_id}/users/${userId}/game_state`, 'current_game');
+      const unsubscribe = onSnapshot(gameStateRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setCharacterName(data.characterName || null);
+          setMoney(data.money !== undefined ? data.money : 5.00);
+          setHealth(data.health !== undefined ? data.health : 100);
+          setFood(data.food !== undefined ? data.food : 100);
+          setEnergy(data.energy !== undefined ? data.energy : 100);
+          try {
+            setFridge(data.fridge ? JSON.parse(data.fridge) : []);
+          } catch (e) {
+            console.error("Errore nel parsing del frigorifero:", e);
+            setFridge([]);
+          }
+          setInternetUsage(data.internetUsage !== undefined ? data.internetUsage : 0);
+          setGameDay(data.gameDay !== undefined ? data.gameDay : 1);
+          setLastSalaryDay(data.lastSalaryDay !== undefined ? data.lastSalaryDay : 0);
+          setLastSavedRealTime(data.lastSavedRealTime !== undefined ? data.lastSavedRealTime : Date.now());
+          try {
+            setPurchaseHistory(data.purchaseHistory ? JSON.parse(data.purchaseHistory) : []);
+          } catch (e) {
+            console.error("Errore nel parsing della cronologia acquisti:", e);
+            setPurchaseHistory([]);
+          }
+
+          console.log("Stato del gioco caricato con successo.");
+
+          // Se characterName è presente, nascondi il modal del nome
+          if (data.characterName) {
+            setShowNameInputModal(false);
+          } else {
+            setShowNameInputModal(true);
+          }
+
+          // Calcola il tempo offline e applica le penalità e stipendi
+          const currentTime = Date.now();
+          const offlineDurationMs = currentTime - (data.lastSavedRealTime || currentTime);
+          const offlineGameMinutes = (offlineDurationMs / 1000) * GAME_MINUTES_PER_REAL_SECOND; // Minuti di gioco trascorsi offline
+
+          let newHealth = data.health;
+          let newFood = data.food;
+          let newEnergy = data.energy;
+          let newMoney = data.money;
+          let newGameDay = data.gameDay;
+          let newLastSalaryDay = data.lastSalaryDay;
+
+          if (offlineGameMinutes > 0) {
+            // Applicare i decrementi delle barre per il tempo offline
+            newHealth = Math.max(0, newHealth - (offlineGameMinutes / 60) * HEALTH_DECREASE_PER_HOUR);
+            newFood = Math.max(0, newFood - (offlineGameMinutes / 5) * FOOD_DECREASE_PER_5_MINUTES);
+            newEnergy = Math.max(0, newEnergy - (offlineGameMinutes / 20) * ENERGY_DECREASE_PER_20_MINUTES);
+
+            // Calcolare giorni di gioco passati offline
+            const daysPassedOffline = Math.floor(offlineGameMinutes / MINUTES_IN_A_GAME_DAY);
+            if (daysPassedOffline > 0) {
+              newGameDay = data.gameDay + daysPassedOffline;
+            }
+
+            // Applicare stipendi per i giorni passati offline (il giorno dopo)
+            let daysForSalary = newGameDay - newLastSalaryDay - 1; // -1 perché lo stipendio è per il giorno *precedente*
+            if (daysForSalary > 0) {
+              newMoney += daysForSalary * DAILY_SALARY_AMOUNT;
+              newLastSalaryDay = newGameDay -1 ; // l'ultimo giorno di paga è ieri
+              displayMessage(`Hai ricevuto €${(daysForSalary * DAILY_SALARY_AMOUNT).toFixed(2)} di stipendi arretrati per ${daysForSalary} giorni offline.`, 5000);
+            }
+
+            // Aggiorna lo stato del gioco con le penalità e gli stipendi offline
+            setHealth(newHealth);
+            setFood(newFood);
+            setEnergy(newEnergy);
+            setMoney(newMoney);
+            setGameDay(newGameDay);
+            setLastSalaryDay(newLastSalaryDay);
+            displayMessage(`Hai perso salute, cibo ed energia mentre eri offline, ma hai ricevuto gli stipendi arretrati!`, 7000);
+          }
+
+
+        } else {
+          console.log("Nessuno stato di gioco salvato, inizio una nuova partita.");
+          // Se non c'è stato salvato, assicurati che il modal del nome sia visibile
+          setShowNameInputModal(true);
+          setMoney(5.00);
+          setHealth(100);
+          setFood(100);
+          setEnergy(100);
+          setFridge([]);
+          setInternetUsage(0);
+          setGameDay(1);
+          setLastSalaryDay(0); // Inizio, non ha ancora ricevuto stipendi
+          setLastSavedRealTime(Date.now());
+          setPurchaseHistory([]);
+        }
+      }, (error) => {
+        console.error("Errore nel caricamento dello stato del gioco:", error);
+      });
+
+      return () => unsubscribe(); // Cleanup listener
+    }
+  }, [db, userId, isAuthReady, displayMessage]);
+
+  // Salva lo stato ogni volta che una variabile di stato chiave cambia
+  useEffect(() => {
+    if (isAuthReady && characterName) { // Assicurati che Firebase sia pronto e il nome personaggio impostato prima di salvare
+      saveGameState();
+    }
+  }, [money, health, food, energy, fridge, internetUsage, gameDay, lastSalaryDay, characterName, purchaseHistory, isAuthReady, saveGameState]);
+
+
+  // --- Gestione Nome Personaggio ---
+  const handleNameSubmit = useCallback(async (name) => {
+    if (!db || !userId) {
+      setNameInputMessage("Errore: Servizi di gioco non disponibili.");
+      return;
+    }
+
+    setIsCheckingName(true);
+    setNameInputMessage("Controllo disponibilità nome...");
+
+    const characterNamesRef = doc(db, `artifacts/${__app_id}/public/data/character_names`, name.toLowerCase());
+    try {
+      const docSnap = await getDoc(characterNamesRef);
+      if (docSnap.exists()) {
+        setNameInputMessage("Questo nome è già registrato. Scegline un altro.");
+        playSound('https://actions.google.com/sounds/v1/ui/close_alert_long.ogg', 0.5); // Suono di errore
+      } else {
+        // Nome disponibile, registralo
+        await setDoc(characterNamesRef, { userId: userId });
+        setCharacterName(name);
+        setShowNameInputModal(false);
+        setNameInputMessage('');
+        displayMessage(`Benvenuto, ${name}! La tua avventura inizia.`, 5000);
+        playSound('https://actions.google.com/sounds/v1/ui/success_chime.ogg', 0.5); // Suono di successo
+      }
+    } catch (e) {
+      console.error("Errore durante la verifica/registrazione del nome:", e);
+      setNameInputMessage("Errore durante la registrazione del nome. Riprova.");
+      playSound('https://actions.google.com/sounds/v1/ui/close_alert_long.ogg', 0.5); // Suono di errore
+    } finally {
+      setIsCheckingName(false);
+    }
+  }, [db, userId, displayMessage]);
+
+  // --- Game Logic ---
+  useEffect(() => {
+    if (!isAuthReady || !characterName) return; // Attendi che autenticazione e nome personaggio siano pronti
+
+    const gameInterval = setInterval(() => {
+      let currentHealth = health;
+      let currentFood = food;
+      let currentEnergy = energy;
+      let currentMoney = money;
+      let currentGameDay = gameDay;
+      let currentLastSalaryDay = lastSalaryDay;
+
+      // Calcola i minuti di gioco passati in questo tick
+      const gameMinutesInThisTick = GAME_MINUTES_PER_REAL_SECOND;
+
+      // Decremento salute (1% ogni ora di gioco = 60 minuti di gioco)
+      currentHealth = Math.max(0, currentHealth - (gameMinutesInThisTick / 60) * HEALTH_DECREASE_PER_HOUR);
+
+      // Decremento cibo (1% ogni 5 minuti di gioco)
+      currentFood = Math.max(0, currentFood - (gameMinutesInThisTick / 5) * FOOD_DECREASE_PER_5_MINUTES);
+
+      // Decremento energia (1% ogni 20 minuti di gioco)
+      currentEnergy = Math.max(0, currentEnergy - (gameMinutesInThisTick / 20) * ENERGY_DECREASE_PER_20_MINUTES);
+
+      // Aggiornamento del giorno di gioco
+      const newTotalGameMinutes = (currentGameDay - 1) * MINUTES_IN_A_GAME_DAY + gameMinutesInThisTick;
+      const newCalculatedGameDay = Math.floor(newTotalGameMinutes / MINUTES_IN_A_GAME_DAY) + 1;
+
+      if (newCalculatedGameDay > currentGameDay) {
+        // Un nuovo giorno di gioco è iniziato
+        currentGameDay = newCalculatedGameDay;
+        displayMessage(`È il giorno ${currentGameDay} di gioco!`);
+
+        // Stipendio giornaliero (ricevuto il giorno dopo per il giorno precedente)
+        if (currentGameDay > currentLastSalaryDay + 1) { // Se è passato almeno un giorno intero da quando è stato pagato l'ultimo stipendio
+          currentMoney += DAILY_SALARY_AMOUNT;
+          currentLastSalaryDay = currentGameDay -1 ; // Lo stipendio è per il giorno precedente
+          displayMessage(`Hai ricevuto lo stipendio di €${DAILY_SALARY_AMOUNT.toFixed(2)} per il Giorno ${currentLastSalaryDay}!`);
+          playSound('https://actions.google.com/sounds/v1/commerce/cash_register.ogg');
+        }
+
+        // Tasse mensili (ogni 30 giorni di gioco)
+        if (currentGameDay > 0 && currentGameDay % DAYS_PER_MONTH_FOR_TAX === 0) {
+          currentMoney -= MONTHLY_TAX;
+          displayMessage(`Hai pagato €${MONTHLY_TAX.toFixed(2)} di tasse per questo mese!`);
+          playSound('https://actions.google.com/sounds/v1/finance/cash_register_ding.ogg', 0.5); // Suono tasse
+        }
+      }
+
+      setHealth(currentHealth);
+      setFood(currentFood);
+      setEnergy(currentEnergy);
+      setMoney(currentMoney);
+      setGameDay(currentGameDay);
+      setLastSalaryDay(currentLastSalaryDay);
+
+      // Check Game Over
+      if (currentMoney <= GAME_OVER_DEBT_LIMIT && !showGameOver) {
+        setShowGameOver(true);
+        displayMessage("GAME OVER! Hai raggiunto un debito troppo elevato.", 999999);
+        clearInterval(gameInterval); // Ferma il gioco
+      }
+
+    }, GAME_TICK_INTERVAL_MS);
+
+    return () => clearInterval(gameInterval); // Pulizia all'unmount
+  }, [health, food, energy, money, gameDay, lastSalaryDay, displayMessage, isAuthReady, characterName, showGameOver]);
+
+
+  // --- Azioni del Giocatore ---
+
+  const handleSleep = () => {
+    if (energy === 100) {
+      displayMessage("La barra dell'energia è già piena!", 2000);
+      return;
+    }
+    setEnergy(100);
+    displayMessage("Hai dormito e ricaricato l'energia!", 2000);
+    playSound('https://actions.google.com/sounds/v1/alarms/alarm_clock_ringing.ogg', 0.3); // Suono sveglia
+  };
+
+  const handleWork = () => {
+    displayMessage("Stai lavorando... Lo stipendio di €50 arriverà il giorno dopo!", 3000);
+    playSound('https://actions.google.com/sounds/v1/tools/saw_cutting_wood.ogg', 0.3); // Suono di lavoro
+  };
+
+  // Modificato per includere il tipo di acquisto e suoni
+  const handleBuyProduct = (product, type) => {
+    if (health === 100) {
+      displayMessage("La barra della salute è già piena!", 2000);
+      return;
+    }
+    if (money >= product.price) {
+      playSound(SCAN_SOUND); // Suono scansione prodotto
+      setTimeout(() => { // Ritarda il suono dello scontrino per effetto
+        setMoney((prev) => prev - product.price);
+        setHealth((prev) => Math.min(100, prev + product.heal));
+        setPurchaseHistory((prev) => [...prev, { item: product, type: type, timestamp: Date.now() }]);
+        displayMessage(`Hai comprato ${product.name}. Salute +${product.heal}%!`, 2000);
+        playSound(RECEIPT_PRINT_SOUND); // Suono stampa scontrino
+        setShowPharmacy(false); // Chiudi la modale
+      }, 500); // Mezzo secondo di ritardo
+    } else {
+      displayMessage("Non hai abbastanza soldi per questo articolo!", 2000);
+    }
+  };
+
+  // Modificato per includere il tipo di acquisto e suoni
+  const handleBuyFood = (item, type) => {
+    if (money >= item.price) {
+      playSound(SCAN_SOUND); // Suono scansione prodotto
+      setTimeout(() => { // Ritarda il suono dello scontrino per effetto
+        setMoney((prev) => prev - item.price);
+        setFridge((prev) => [...prev, item]); // Aggiungi al frigo
+        setPurchaseHistory((prev) => [...prev, { item: item, type: type, timestamp: Date.now() }]);
+        displayMessage(`Hai comprato ${item.name} e lo hai messo in frigo!`, 2000);
+        playSound(RECEIPT_PRINT_SOUND); // Suono stampa scontrino
+      }, 500); // Mezzo secondo di ritardo
+    } else {
+      displayMessage("Non hai abbastanza soldi per questo alimento!", 2000);
+    }
+  };
+
+  const handleEatFood = (index) => {
+    if (food === 100) {
+      displayMessage("La barra del cibo è già piena!", 2000);
+      return;
+    }
+    const itemToEat = fridge[index];
+    setFood((prev) => Math.min(100, prev + itemToEat.restore));
+    setFridge((prev) => prev.filter((_, i) => i !== index)); // Rimuovi dal frigo
+    displayMessage(`Hai mangiato ${itemToEat.name}. Cibo +${itemToEat.restore}%!`, 2000);
+    playSound('https://actions.google.com/sounds/v1/human_voices/eating_sound.ogg', 0.3); // Suono mangiare
+  };
+
+  const handlePlayGame = (game) => {
+    setInternetUsage((prev) => prev + game.mb);
+    displayMessage(`Hai giocato a ${game.name} per 1 ora. Consumo: ${game.mb} MB.`, 2000);
+    playSound('https://actions.google.com/sounds/v1/cartoon/cartoon_success_fanfare.ogg', 0.3); // Suono gioco
+  };
+
+  const handleDoLeisure = (activity) => {
+    if (money < activity.price) {
+      displayMessage("Non hai abbastanza soldi per questa attività!", 2000);
+      return;
+    }
+    setMoney((prev) => prev - activity.price);
+    setEnergy((prev) => Math.min(100, prev + (activity.restoreEnergy || 0)));
+    setFood((prev) => Math.min(100, prev + (activity.restoreFood || 0))); // Per attività che ripristinano anche cibo
+    displayMessage(`Hai fatto: ${activity.name}! Energia +${activity.restoreEnergy || 0}%${activity.restoreFood ? ` e Cibo +${activity.restoreFood}%` : ''}.`, 2000);
+    playSound('https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg', 0.3); // Suono generico per attività
+    setShowLeisure(false);
+  };
+
+  // Funzione per ottenere consigli finanziari dall'LLM
+  const getFinancialAdvice = useCallback(async () => {
+    setIsGeneratingAdvice(true);
+    setFinancialAdvice('Sto pensando al miglior consiglio per te...');
+    const prompt = `Sei un consulente finanziario. Analizza la seguente situazione di un personaggio in un gioco di simulazione di vita e fornisci un breve consiglio su come gestire meglio le sue risorse, in particolare sul risparmio o sulle spese.
+    Situazione attuale:
+    Denaro: €${money.toFixed(2)}
+    Salute: ${health}%
+    Cibo: ${food}%
+    Energia: ${energy}%
+    Consumo Internet (mensile stimato): €${(internetUsage * 0.01).toFixed(2)}
+
+    Considera che lo stipendio giornaliero è di €${DAILY_SALARY_AMOUNT.toFixed(2)} e le tasse mensili sono di €${MONTHLY_TAX.toFixed(2)} (ogni ${DAYS_PER_MONTH_FOR_TAX} giorni di gioco). Il limite di debito per il GAME OVER è €${GAME_OVER_DEBT_LIMIT.toFixed(2)}.
+
+    Fornisci un consiglio pratico e incoraggiante, focalizzato sul risparmio e sulla gestione efficiente, in italiano. Sii conciso.`;
+
+    let chatHistory = [];
+    chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+    const payload = { contents: chatHistory };
+    const apiKey = ""; // Lascia vuoto per l'API key fornita dall'ambiente
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        const text = result.candidates[0].content.parts[0].text;
+        setFinancialAdvice(text);
+        playSound('https://actions.google.com/sounds/v1/ui/open_book.ogg', 0.5); // Suono per il consiglio
+      } else {
+        setFinancialAdvice("Non sono riuscito a generare un consiglio. Riprova più tardi.");
+        console.error("Risposta API inattesa:", result);
+      }
+    } catch (error) {
+      setFinancialAdvice("Errore durante la richiesta di consiglio. Controlla la tua connessione.");
+      console.error("Errore fetch API Gemini:", error);
+    } finally {
+      setIsGeneratingAdvice(false);
+    }
+  }, [money, health, food, energy, internetUsage, displayMessage]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-100 to-purple-200 flex items-center justify-center p-4 font-sans antialiased text-gray-900">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-2xl w-full border-4 border-indigo-300">
+        <h1 className="text-4xl font-extrabold text-center mb-6 text-indigo-700">Simulazione di Vita</h1>
+
+        {/* Modal per l'input del nome del personaggio */}
+        <NameInputModal
+          show={showNameInputModal}
+          onNameSubmit={handleNameSubmit}
+          message={nameInputMessage}
+          isCheckingName={isCheckingName}
+        />
+
+        {!showNameInputModal && ( // Mostra il gioco solo se il nome è stato impostato
+          <>
+            <p className="text-center text-xl font-semibold text-gray-700 mb-4">
+              Personaggio: <span className="text-indigo-600">{characterName}</span>
+            </p>
+            {userId && (
+              <p className="text-center text-sm text-gray-500 mb-4">
+                ID Utente: <span className="font-mono text-gray-700 break-all">{userId}</span>
+              </p>
+            )}
+            <p className="text-center text-md text-gray-600 mb-4">
+              Giorno di Gioco: <span className="font-bold text-gray-800">{gameDay}</span>
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="flex flex-col items-center justify-center bg-yellow-50 p-4 rounded-lg shadow-inner">
+                <span className="text-5xl mb-2" role="img" aria-label="Soldi">💰</span>
+                <p className="text-3xl font-bold text-green-700">€{money.toFixed(2)}</p>
+              </div>
+              <div className="space-y-4">
+                <StatusBar label="Salute" value={health} colorClass="bg-red-500" />
+                <StatusBar label="Cibo" value={food} colorClass="bg-green-500" />
+                <StatusBar label="Energia" value={energy} colorClass="bg-blue-500" />
+              </div>
+            </div>
+
+            {message && (
+              <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative mb-6 text-center shadow-md">
+                <p className="font-medium">{message}</p>
+              </div>
+            )}
+
+            {showGameOver && (
+              <div className="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50 p-4">
+                <div className="bg-red-700 text-white rounded-lg shadow-xl p-8 text-center animate-pulse">
+                  <h2 className="text-5xl font-extrabold mb-4">GAME OVER!</h2>
+                  <p className="text-2xl mb-6">Hai raggiunto un debito di €{money.toFixed(2)}.</p>
+                  <button
+                    onClick={() => window.location.reload()} // Riavvia il gioco
+                    className="bg-white text-red-700 py-3 px-8 rounded-full text-xl font-bold hover:bg-gray-200 transition-colors shadow-lg"
+                  >
+                    Ricomincia
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <button
+                onClick={handleSleep}
+                className="flex flex-col items-center justify-center p-4 bg-indigo-500 text-white rounded-lg shadow-md hover:bg-indigo-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">😴</span>
+                <span className="font-semibold text-lg">Dormi</span>
+              </button>
+              <button
+                onClick={() => setShowPharmacy(true)}
+                className="flex flex-col items-center justify-center p-4 bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">🏥</span>
+                <span className="font-semibold text-lg">Farmacia</span>
+              </button>
+              <button
+                onClick={() => setShowSupermarket(true)}
+                className="flex flex-col items-center justify-center p-4 bg-green-500 text-white rounded-lg shadow-md hover:bg-green-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">🛒</span>
+                <span className="font-semibold text-lg">Supermercato</span>
+              </button>
+              <button
+                onClick={() => setShowFridge(true)} // Nuovo pulsante per il frigorifero
+                className="flex flex-col items-center justify-center p-4 bg-yellow-700 text-white rounded-lg shadow-md hover:bg-yellow-800 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">🧊</span>
+                <span className="font-semibold text-lg">Frigorifero</span>
+              </button>
+              <button
+                onClick={handleWork}
+                className="flex flex-col items-center justify-center p-4 bg-yellow-500 text-gray-800 rounded-lg shadow-md hover:bg-yellow-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">💼</span>
+                <span className="font-semibold text-lg">Lavora</span>
+              </button>
+              <button
+                onClick={() => setShowComputer(true)}
+                className="flex flex-col items-center justify-center p-4 bg-purple-500 text-white rounded-lg shadow-md hover:bg-purple-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">💻</span>
+                <span className="font-semibold text-lg">Computer</span>
+              </button>
+              {/* Pulsante per Tempo Libero */}
+              <button
+                onClick={() => setShowLeisure(true)}
+                className="flex flex-col items-center justify-center p-4 bg-orange-500 text-white rounded-lg shadow-md hover:bg-orange-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">🎭</span>
+                <span className="font-semibold text-lg">Tempo Libero</span>
+              </button>
+              {/* Pulsante per Consigli Finanziari */}
+              <button
+                onClick={() => setShowFinancialAdvice(true)}
+                className="flex flex-col items-center justify-center p-4 bg-teal-500 text-white rounded-lg shadow-md hover:bg-teal-600 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">✨</span>
+                <span className="font-semibold text-lg">Consigli Finanziari</span>
+              </button>
+              {/* Nuovo pulsante per la cronologia acquisti */}
+              <button
+                onClick={() => setShowReceiptHistory(true)}
+                className="flex flex-col items-center justify-center p-4 bg-gray-600 text-white rounded-lg shadow-md hover:bg-gray-700 transition-transform transform hover:scale-105 active:scale-95"
+              >
+                <span className="text-4xl mb-2">🧾</span>
+                <span className="font-semibold text-lg">Cronologia Acquisti</span>
+              </button>
+            </div>
+
+            <PharmacyModal
+              show={showPharmacy}
+              onClose={() => setShowPharmacy(false)}
+              money={money}
+              onBuy={handleBuyProduct}
+              onMessage={displayMessage}
+            />
+            <SupermarketModal
+              show={showSupermarket}
+              onClose={() => setShowSupermarket(false)}
+              money={money}
+              onBuyFood={handleBuyFood}
+              onMessage={displayMessage}
+            />
+            <FridgeModal
+              show={showFridge}
+              onClose={() => setShowFridge(false)}
+              fridge={fridge}
+              onEatFood={handleEatFood}
+              onMessage={displayMessage}
+            />
+            <ComputerModal
+              show={showComputer}
+              onClose={() => setShowComputer(false)}
+              money={money}
+              onPlayGame={handlePlayGame}
+              internetUsage={internetUsage}
+              onMessage={displayMessage}
+            />
+            <LeisureModal
+              show={showLeisure}
+              onClose={() => setShowLeisure(false)}
+              money={money}
+              onDoLeisure={handleDoLeisure}
+              onMessage={displayMessage}
+            />
+
+            {/* Modale per Consigli Finanziari */}
+            <Modal show={showFinancialAdvice} onClose={() => setShowFinancialAdvice(false)} title="Consigli Finanziari">
+              <p className="text-gray-700 text-lg mb-4">
+                {isGeneratingAdvice ? (
+                  <span className="text-blue-600 animate-pulse">{financialAdvice}</span>
+                ) : (
+                  financialAdvice
+                )}
+              </p>
+              <button
+                onClick={getFinancialAdvice}
+                disabled={isGeneratingAdvice}
+                className="w-full bg-teal-600 text-white py-2 px-4 rounded-md hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingAdvice ? 'Generazione in corso...' : 'Chiedi un consiglio a Gemini'}
+              </button>
+            </Modal>
+
+            {/* Modale per la Cronologia Acquisti / Scontrini */}
+            <ReceiptHistoryModal
+              show={showReceiptHistory}
+              onClose={() => setShowReceiptHistory(false)}
+              purchaseHistory={purchaseHistory}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
